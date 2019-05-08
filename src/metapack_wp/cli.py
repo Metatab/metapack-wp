@@ -10,7 +10,7 @@ import yaml
 from metapack import Downloader
 from metapack.cli.core import find_csv_packages
 from metapack.cli.core import prt, err, get_config, MetapackCliMemo
-from metapack.jupyter.convert import convert_wordpress
+from .jupyter import convert_wordpress
 from metapack.util import ensure_dir
 from os.path import basename
 from rowgenerators import parse_app_url
