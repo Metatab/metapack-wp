@@ -16,6 +16,7 @@ from os.path import basename
 from rowgenerators import parse_app_url
 from textwrap import dedent
 from uuid import uuid4
+from metapack.html import display_context
 
 downloader = Downloader.get_instance()
 
@@ -262,6 +263,19 @@ def publish_wp(site_name, output_file, resources, args):
 
     return r,  wp.call(GetPost(post.id))
 
+def markdown(doc, title=True, template='short_documentation.md'):
+    """Markdown, specifically for the Notes field in a CKAN dataset"""
+
+    from jinja2 import Environment, PackageLoader, select_autoescape
+    env = Environment(
+        loader=PackageLoader('metapack_wp', 'support/templates')
+        #autoescape=select_autoescape(['html', 'xml'])
+    )
+
+    context = display_context(doc)
+
+    return env.get_template(template).render(**context)
+
 def html(doc):
     from markdown import markdown as convert_markdown
     from metapack.html import  markdown
@@ -287,7 +301,10 @@ def run_package(m):
     if not doc.find('Root.Distribution'):
 
         doc = find_csv_packages(m, downloader)
-        prt("Package has no Root.Distribution, using CSV package: ", doc.ref)
+        if not doc:
+            err('Package has no Root.Distribution, and no CSV package found')
+        else:
+            prt("Package has no Root.Distribution, using CSV package: ", m.doc.ref)
 
     wp = Client(url, user, password)
 
