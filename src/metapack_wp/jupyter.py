@@ -10,7 +10,7 @@ import json
 import re
 from datetime import datetime
 from metapack.cli.core import prt, err
-from metapack.jupyter.core import logger
+from metapack_jupyter.core import logger
 from nbconvert.exporters.html import HTMLExporter
 # from metapack.jupyter.markdown import MarkdownExporter
 from nbconvert.exporters.markdown import MarkdownExporter

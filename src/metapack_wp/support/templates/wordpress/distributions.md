@@ -19,7 +19,7 @@ with analysis tools like Metapack.
 <!-- /wp:list -->
 
 {% if distributions.zip  or distributions.csv %}
-<!-- wp:heading  -->
+<!-- wp:heading  {"level":3} -->
 <h3 id="metapack">Accessing Packages in Metapack</h3>
 <!-- /wp:heading -->
 <!-- wp:code -->

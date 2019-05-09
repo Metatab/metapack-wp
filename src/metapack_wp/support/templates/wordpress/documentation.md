@@ -9,7 +9,7 @@
 <!-- /wp:html -->
 
 {% if doc_links -%}
-<!-- wp:heading  -->
+<!-- wp:heading  {"level":3} -->
 <h3 id="documentation_links">Documentation Links</h3>
 <!-- /wp:heading -->
 <!-- wp:list -->
