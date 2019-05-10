@@ -3,15 +3,13 @@ metapack-wp
 ===========
 
 
-Wordpress extension for the Metapack data maangement system
+Wordpress extension for the Metapack data management system. http://metatab.org
 
 
 Description
 ===========
 
-A longer description of your project goes here...
-
-
+This extension provides Metapack commands for:
 
 Development
 ==========
