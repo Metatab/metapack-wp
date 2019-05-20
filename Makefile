@@ -11,6 +11,12 @@ rev:
 showrev:
 	@echo this=$(THIS_REV) next=$(NEXT_REV)
 
+check:
+	rm -rf dist/*
+	python setup.py sdist
+	twine check dist/*
+
 publish:
+	rm -rf dist/*
 	python setup.py sdist
 	twine upload dist/*
