@@ -5,9 +5,9 @@
 
 <!-- wp:list -->
 
-{% for note in notes %}
-* {{note | replace('\n', '')}}
-{%- endfor %}
+<ul>{% for note in notes %}
+<li>{{note | replace('\n', '')}}</li>
+{%- endfor %}</ul>
 
 <!-- /wp:list -->
 

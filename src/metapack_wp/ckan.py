@@ -15,11 +15,12 @@ from os.path import basename
 from textwrap import dedent
 
 from metapack import Downloader, MetapackDoc, open_package
-from metapack.cli.core import err, find_csv_packages, prt, warn, write_doc
-from metapack.package.s3 import S3Bucket
+from metapack.cli.core import err, prt, warn, write_doc
+from metapack_build.build import find_csv_packages
+from metapack_build.package.s3 import S3Bucket
 from metatab import MetatabError
 
-from .core import MetapackCliMemo as _MetapackCliMemo
+from metapack.cli.core import MetapackCliMemo as _MetapackCliMemo
 
 downloader = Downloader.get_instance()
 
@@ -129,7 +130,6 @@ def send_to_ckan(m):
     except (IOError, MetatabError) as e:
         err("Failed to open metatab '{}': {}".format(m.mt_file, e))
 
-
     # Check for distributions, if there aren't any, try to find a CSV package,
     # which may be an S3 package with distributions.
 
@@ -138,7 +138,6 @@ def send_to_ckan(m):
         if doc:
             prt("Orig doc has no distributions, switching to doc from built packages:")
             prt("    ", doc.ref)
-
 
     if not doc or not doc.find('Root.Distribution'):
         err("No distributions found. Giving up")
