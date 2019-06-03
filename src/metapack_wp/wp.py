@@ -60,6 +60,7 @@ def wp(subparsers):
     parser.add_argument('-d', '--dump', help="Dump the HTML. Default if site_name is not specified",
                         action='store_true')
 
+
     parser.add_argument('-s', '--site_name', help="Site name, in the .metapack.yaml configuration file")
 
     parser.add_argument('-T', '--template', help="Name of Jinja2 template", default='wordpress.html')
@@ -361,9 +362,12 @@ def get_doc_content(m):
 
 
 def run_package(m):
+    """Publish documentation for a package as a post"""
     from wordpress_xmlrpc import Client, WordPressPost
     from xmlrpc.client import Fault
     from wordpress_xmlrpc.methods.posts import NewPost, EditPost
+    from slugify import slugify
+
 
     doc, content = get_doc_content(m)
 
@@ -374,7 +378,12 @@ def run_package(m):
 
     if m.args.get:
         if post:
-            print(post.content)
+            post.content = "<content elided>"
+            from pprint import pprint
+            pprint(post.struct)
+            return
+        else:
+            warn(f"Didn't find post for identifier {doc.identifier}")
             return
 
     if post:
@@ -405,7 +414,7 @@ def run_package(m):
     }
 
     post.title = doc.get_value('Root.Title')
-
+    post.slug = slugify(doc.nonver_name)
     post.content = content
 
     if m.args.publish:
