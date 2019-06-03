@@ -17,6 +17,7 @@ check:
 	twine check dist/*
 
 publish:
+	git push --tags origin
 	rm -rf dist/*
 	python setup.py sdist
 	twine upload dist/*
