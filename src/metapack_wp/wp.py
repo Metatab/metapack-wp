@@ -6,18 +6,20 @@ CLI program for managing packages
 """
 
 import json
+from functools import lru_cache
 from os.path import basename
 from textwrap import dedent
 from uuid import uuid4
 
 import yaml
-from metapack import Downloader
+from metapack import Downloader, is_metapack_url
 from metapack.cli.core import (MetapackCliMemo, err, warn, get_config, prt)
-from metapack.html import display_context
+from metapack.html import display_context, jsonld
 from metapack.util import ensure_dir
-from metapack_build.build import find_csv_packages
 from metapack_jupyter.wordpress import convert_wordpress
 from rowgenerators import parse_app_url
+
+from metapack_build.build import find_csv_packages
 
 downloader = Downloader.get_instance()
 
@@ -29,8 +31,13 @@ def wp(subparsers):
         description="""
         Write a notebook or package to Wordpress.
 
-        If the source argument is a data package, package information will be submitted to the Wordpress blog as a
-        blog post, formatted impliarly to the package html documentation file.
+        If the source argument is a data package, (Metatab format Metapack package, CSV or ZIP )package information will be 
+        submitted to the Wordpress blog as a blog post, formatted similarly to the package html documentation file.
+
+        If the source is a Metatab file and the ``--references`` option is set, the references References section of the 
+        file are URLs for the packages that should be published. The ``--group`` and ``--tag`` options are used
+        for publishing each of the references. 
+        
 
         If the source argument is a Jupyter notebook, the notebook is written as a blog post. See
         http://insights.civicknowledge.com for examples.
@@ -42,11 +49,11 @@ def wp(subparsers):
 
     parser.add_argument('-g', '--group', nargs='?', action='append', help="Assign an additional group. Can be used "
                                                                           "multiple times, one onece with values "
-                                                                          "seperated by commas")
+                                                                          "separated by commas")
 
     parser.add_argument('-t', '--tag', nargs='?', action='append', help="Assign an additional tag. Can be used "
-                                                                        "multiple timesm or once with values "
-                                                                        "seperated by commas")
+                                                                        "multiple times, or once with values "
+                                                                        "separated by commas")
 
     parser.add_argument('-H', '--header', help='Dump YAML of notebook header', action='store_true')
 
@@ -57,15 +64,19 @@ def wp(subparsers):
     parser.add_argument('-p', '--publish', help='Set the post state to published, rather than draft',
                         action='store_true')
 
-    parser.add_argument('-d', '--dump', help="Dump the HTML. Default if site_name is not specified",
+    parser.add_argument('-r', '--references', help='The metatab package lists the packages to publish as references',
                         action='store_true')
 
+    parser.add_argument('-d', '--dump', help="Dump the HTML. Default if site_name is not specified",
+                        action='store_true')
 
     parser.add_argument('-s', '--site_name', help="Site name, in the .metapack.yaml configuration file")
 
     parser.add_argument('-T', '--template', help="Name of Jinja2 template", default='wordpress.html')
 
-    parser.add_argument('source', help="Path to a notebook file or a Metapack package")
+    parser.add_argument('-n', '--no-op', help='Do everything but submit the post', action='store_true')
+
+    parser.add_argument('source',nargs='?', help="Path to a notebook file or a Metapack package")
 
 
 def split_groups_tags(v):
@@ -79,8 +90,11 @@ def split_groups_tags(v):
         else:
             yield g
 
-
 def run_wp(args):
+
+    if not args.source:
+        args.source = '.'
+
     u = parse_app_url(args.source)
 
     if u.target_format == 'ipynb':
@@ -94,7 +108,27 @@ def run_wp(args):
             doc, content = get_doc_content(m)
             print(content)
         elif args.site_name:
-            run_package(m)
+
+            if args.references:
+
+                m.args.group = m.args.group if m.args.group else []
+                m.args.group += [e.value for e in m.doc.find('Root.Group')]
+
+                m.args.tag = m.args.tag if m.args.tag else []
+                m.args.tag += [e.value for e in m.doc.find('Root.Tag')]
+
+                for r in m.doc.references():
+                    u = r.resolved_url
+                    if is_metapack_url(u):
+                        args.metatabfile = str(u)
+                        mc = MetapackCliMemo(m.args, downloader)
+
+                        prt("Publishing ", str(u))
+
+                        run_package(mc)
+
+            else:
+                run_package(m)
 
 
 def run_notebook(args):
@@ -159,10 +193,29 @@ def cust_field_dict(post):
         return {}
 
 
-def find_post(wp, identifier):
+@lru_cache()
+def get_posts(wp):
+    """Get and memoize all posts"""
     from wordpress_xmlrpc.methods.posts import GetPosts
 
-    for _post in wp.call(GetPosts()):
+    all_posts = []
+
+    offset = 0
+    increment = 20
+    while True:
+        posts = wp.call(GetPosts({'number': increment, 'offset': offset}))
+        if len(posts) == 0:
+            break  # no more posts returned
+        for post in posts:
+            all_posts.append(post)
+
+        offset = offset + increment
+
+    return all_posts
+
+
+def find_post(wp, identifier):
+    for _post in get_posts(wp):
         if cust_field_dict(_post).get('identifier') == identifier:
             return _post
 
@@ -175,7 +228,7 @@ def set_custom_field(post, key, value):
         if not hasattr(post, 'custom_fields'):
             post.custom_fields = []
 
-        post.custom_fields.append( {'key': key, 'value': value})
+        post.custom_fields.append({'key': key, 'value': value})
 
 
 def publish_wp(site_name, output_file, resources, args):
@@ -232,7 +285,7 @@ def publish_wp(site_name, output_file, resources, args):
     else:
         post = WordPressPost()
         post.id = wp.call(NewPost(post))
-        prt("Creating new post")
+        prt(f"Creating new post; could not find identifier {fm['identifier']} ")
 
     post.title = fm.get('title', '')
     post.slug = fm.get('slug')
@@ -279,7 +332,13 @@ def publish_wp(site_name, output_file, resources, args):
             img_to = extant_image.link
 
         elif r.endswith('.png'):  # Foolishly assuming all images are PNGs
-            response = wp.call(UploadFile(image_data, overwrite=True))
+            if args.no_op:
+                response = {
+                    'id': None,
+                    'link': 'http://example.com'
+                }
+            else:
+                response = wp.call(UploadFile(image_data, overwrite=True))
 
             prt("Uploaded image {} to id={}, {}".format(basename(r), response['id'], response['link']))
 
@@ -287,7 +346,7 @@ def publish_wp(site_name, output_file, resources, args):
 
         content = content.replace(img_from, img_to)
 
-    if fm.get('featured_image') and fm.get('featured_image').strip():
+    if fm.get('featured_image') and str(fm.get('featured_image')).strip():
         post.thumbnail = int(fm['featured_image'])
     elif hasattr(post, 'thumbnail') and isinstance(post.thumbnail, dict):
         # The thumbnail expects an attachment id on EditPost, but returns a dict on GetPost
@@ -295,9 +354,10 @@ def publish_wp(site_name, output_file, resources, args):
 
     post.content = content
 
-    r = wp.call(EditPost(post.id, post))
+    if not args.no_op:
+        r = wp.call(EditPost(post.id, post))
 
-    return r, wp.call(GetPost(post.id))
+        return r, wp.call(GetPost(post.id))
 
 
 def html(doc, template):
@@ -337,6 +397,8 @@ def html(doc, template):
     else:
         context['inline_doc_parts'] = []
 
+    context['jsonld'] = json.dumps(jsonld(doc), indent=4)
+
     env = Environment(
         loader=PackageLoader('metapack_wp', 'support/templates')
         # autoescape=select_autoescape(['html', 'xml'])
@@ -346,7 +408,6 @@ def html(doc, template):
 
 
 def get_doc_content(m):
-
     if not m.doc.find('Root.Distribution'):
 
         doc = find_csv_packages(m, downloader)
@@ -367,7 +428,6 @@ def run_package(m):
     from xmlrpc.client import Fault
     from wordpress_xmlrpc.methods.posts import NewPost, EditPost
     from slugify import slugify
-
 
     doc, content = get_doc_content(m)
 
@@ -390,7 +450,8 @@ def run_package(m):
         prt("Updating old post")
         action = lambda post: EditPost(post.id, post)
     else:
-        prt("Creating new post")
+        prt(f"Creating new post; could not find identifier '{doc.identifier}' ")
+        print(doc.identifier)
         action = lambda post: NewPost(post)
         post = WordPressPost()
 
@@ -421,7 +482,10 @@ def run_package(m):
         post.post_status = 'publish'
 
     try:
-        r = wp.call(action(post))
+        if m.args.no_op:
+            r = {}
+        else:
+            r = wp.call(action(post))
     except Fault as e:
 
         if 'taxonomies' in e.faultString:

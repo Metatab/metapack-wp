@@ -12,10 +12,11 @@
 
 <ul>{% for term_name, terms in references.items() -%}
 {% for reference in terms %}
-<li> <strong>{%- if reference.url.startswith('http') -%}
-    <a href="{{reference.url}}">{{reference.name}}</a>
-{%-else-%}{{reference.url}}{%-endif-%}</strong>.
-{{reference.description}}</li>
+{%- if reference.url.startswith('http') -%}
+    <li> <strong><a href="{{reference.url}}">{{reference.name}}</a></strong>. {{reference.description}}</li>
+{%-else-%}
+    <li> <strong>{{reference.url}}</strong>. {{reference.description}}</li>
+{%-endif-%}
 {%- endfor %}
 {%- endfor %}</ul>
 
