@@ -1,9 +1,9 @@
-<!-- wp:paragraph -->
-<p><em>{{root.description}}</em></p>
+<!-- wp:paragraph {"customFontSize":22} -->
+<p style="font-size:22px"><em>{{root.description}}</em></p>
 <!-- /wp:paragraph -->
 
-<!-- wp:paragraph -->
-<p><code>{% if root.name -%}{{root.name}}{%-else-%}{{root.identifier}}{%-endif%}</code></p>
+<!-- wp:paragraph {"fontSize":"small"} -->
+<p class="has-small-font-size"><code>{% if root.name -%}{{root.name}}{%-else-%}{{root.identifier}}{%-endif%}</code>. Modified {{root.modified}}</p>
 <!-- /wp:paragraph -->
 
 <!-- wp:paragraph -->

@@ -64,8 +64,11 @@ def wp(subparsers):
     parser.add_argument('-p', '--publish', help='Set the post state to published, rather than draft',
                         action='store_true')
 
-    parser.add_argument('-r', '--references', help='The metatab package lists the packages to publish as references',
+    parser.add_argument('-R', '--references', help='The metatab package lists the packages to publish as references',
                         action='store_true')
+
+    parser.add_argument('-r', '--result', action='store_true', default=False,
+                        help="If mp -q flag set, still report results")
 
     parser.add_argument('-d', '--dump', help="Dump the HTML. Default if site_name is not specified",
                         action='store_true')
@@ -118,17 +121,25 @@ def run_wp(args):
                 m.args.tag += [e.value for e in m.doc.find('Root.Tag')]
 
                 for r in m.doc.references():
+
                     u = r.resolved_url
                     if is_metapack_url(u):
                         args.metatabfile = str(u)
                         mc = MetapackCliMemo(m.args, downloader)
 
-                        prt("Publishing ", str(u))
+                        if args.result:
+                            print(f" ✅ Publishing {str(u)} to {args.site_name}", )
+                        else:
+                            prt(f"Publishing {str(u)} to {args.site_name}", str(u))
 
                         run_package(mc)
 
             else:
                 run_package(m)
+                if args.result:
+                    print(f"✅ Published {str(m.doc.name)} to {args.site_name}", )
+                else:
+                    prt(f"Published {str(m.doc.name)} to {args.site_name}", str(u))
 
 
 def run_notebook(args):
@@ -343,6 +354,9 @@ def publish_wp(site_name, output_file, resources, args):
             prt("Uploaded image {} to id={}, {}".format(basename(r), response['id'], response['link']))
 
             img_to = response['link']
+
+        else:
+            continue
 
         content = content.replace(img_from, img_to)
 
