@@ -28,9 +28,9 @@ pkg = mp.open_package('{{distributions.csv}}')
 {%- for resource in terms %}
 {%- if resource.isgeo -%}
 {{resource.name}}_gdf = pkg.resource('{{resource.name}}').geoframe()
-{% else %}
+{% else -%}
 {{resource.name}}_df = pkg.resource('{{resource.name}}').dataframe()
-{%- endif -%}
+{% endif -%}
 {%- endfor -%}
 {%- endfor -%}
 

@@ -270,6 +270,7 @@ def publish_wp(site_name, output_file, resources, args):
     from wordpress_xmlrpc import Client, WordPressPost
     from wordpress_xmlrpc.methods.media import UploadFile, GetMediaLibrary
     from wordpress_xmlrpc.methods.posts import NewPost, EditPost, GetPost
+    from xmlrpc.client import Fault
 
     # http://busboom.org/wptest/wp-content/uploads/sites/7/2017/11/output_16_0-300x200.png
 
@@ -369,7 +370,13 @@ def publish_wp(site_name, output_file, resources, args):
     post.content = content
 
     if not args.no_op:
-        r = wp.call(EditPost(post.id, post))
+        try:
+            r = wp.call(EditPost(post.id, post))
+        except Fault as e:
+            if 'attachment' in str(e): # Remove attachment and try again.
+                post.thumbnail = None
+                r = wp.call(EditPost(post.id, post))
+
 
         return r, wp.call(GetPost(post.id))
 
