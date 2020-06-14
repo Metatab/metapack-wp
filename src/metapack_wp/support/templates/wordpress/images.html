@@ -6,9 +6,9 @@
 
 <!-- wp:html -->
 <ul>{% for title, image in images.items() %}
-<li><a href="{{image.url}} " title="{{title}}">{{image.url}}</a>
+<li><a href="{{image.url}}" title="{{title}}"><img src="{{image.url}}" width="100"></a>
 {{image.description}}</li>
-{%- endfor -%}
+{%- endfor -%}</ul>
 
 <!-- /wp:html -->
 

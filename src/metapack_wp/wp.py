@@ -272,8 +272,6 @@ def publish_wp(site_name, output_file, resources, args):
     from wordpress_xmlrpc.methods.posts import NewPost, EditPost, GetPost
     from xmlrpc.client import Fault
 
-    # http://busboom.org/wptest/wp-content/uploads/sites/7/2017/11/output_16_0-300x200.png
-
     url, user, password = get_site_config(site_name)
 
     meta = {}
@@ -359,6 +357,8 @@ def publish_wp(site_name, output_file, resources, args):
         else:
             continue
 
+
+
         content = content.replace(img_from, img_to)
 
     if fm.get('featured_image') and str(fm.get('featured_image')).strip():
@@ -420,6 +420,8 @@ def html(doc, template):
 
     context['jsonld'] = json.dumps(jsonld(doc), indent=4)
 
+    #print(json.dumps(context, indent=4))
+
     env = Environment(
         loader=PackageLoader('metapack_wp', 'support/templates')
         # autoescape=select_autoescape(['html', 'xml'])
@@ -433,7 +435,7 @@ def get_doc_content(m):
 
         doc = find_csv_packages(m, downloader)
         if not doc:
-            warn('Package has no Root.Distribution, and no CSV package found')
+            err('Package has no Root.Distribution, and no CSV package found')
             doc = m.doc
         else:
             prt("Package has no Root.Distribution, using CSV package: ", doc.ref)
