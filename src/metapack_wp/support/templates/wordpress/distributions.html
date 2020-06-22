@@ -13,7 +13,21 @@
 
 {% if distributions.zip  or distributions.csv %}
 <!-- wp:heading  {"level":3} -->
-<h3 id="metapack">Accessing Packages in Metapack</h3>
+<h3 id="metapack">Accessing Data in Vanilla Pandas</h3>
+<!-- /wp:heading -->
+<!-- wp:code -->
+<pre class="wp-block-code"><code>import pandas as pd
+
+{% for term_name, terms in resources.items() %}
+{%- for resource in terms %}
+{{resource.name}}_df =  pd.read_csv('{{resource.url}}')
+{%- endfor -%}
+{%- endfor -%}
+
+</code></pre>
+<!-- /wp:code -->
+<!-- wp:heading  {"level":3} -->
+<h3 id="metapack">Accessing Package in Metapack</h3>
 <!-- /wp:heading -->
 <!-- wp:code -->
 <pre class="wp-block-code"><code>import metapack as mp
