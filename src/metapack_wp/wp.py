@@ -438,7 +438,7 @@ def get_doc_content(m):
             err('Package has no Root.Distribution, and no CSV package found')
             doc = m.doc
         else:
-            prt("Package has no Root.Distribution, using CSV package: ", doc.ref)
+            prt("Using CSV package: ", doc.ref)
     else:
         doc = m.doc
 
