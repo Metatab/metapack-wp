@@ -70,6 +70,9 @@ def wp(subparsers):
     parser.add_argument('-r', '--result', action='store_true', default=False,
                         help="If mp -q flag set, still report results")
 
+    parser.add_argument('-j', '--json', help="Dump the JSON that is used to generate the HTML from tempaltes",
+                        action='store_true')
+
     parser.add_argument('-d', '--dump', help="Dump the HTML. Default if site_name is not specified",
                         action='store_true')
 
@@ -107,7 +110,11 @@ def run_wp(args):
         args.metatabfile = args.source
         m = MetapackCliMemo(args, downloader)
 
-        if args.dump or not args.site_name:
+        if args.json:
+            context = display_context(m.doc)
+            print(json.dumps(context, indent=4))
+
+        elif args.dump or not args.site_name:
             doc, content = get_doc_content(m)
             print(content)
         elif args.site_name:
@@ -140,7 +147,6 @@ def run_wp(args):
                     print(f"✅ Published {str(m.doc.name)} to {args.site_name}", )
                 else:
                     prt(f"Published {str(m.doc.name)} to {args.site_name}", str(u))
-
 
 def run_notebook(args):
     p = '/tmp/metapack-wp-notebook/'
@@ -214,7 +220,7 @@ def get_posts(wp):
     offset = 0
     increment = 20
     while True:
-        posts = wp.call(GetPosts({'number': increment, 'offset': offset}))
+        posts = wp.call(GetPosts({'number': increment, 'offset': offset, 'post_type':'post'}))
         if len(posts) == 0:
             break  # no more posts returned
         for post in posts:
@@ -224,14 +230,11 @@ def get_posts(wp):
 
     return all_posts
 
-
 def find_post(wp, identifier):
     for _post in get_posts(wp):
         if cust_field_dict(_post).get('identifier') == identifier:
             return _post
-
     return None
-
 
 def set_custom_field(post, key, value):
     if not hasattr(post, 'custom_fields') or not key in [e['key'] for e in post.custom_fields]:
@@ -240,7 +243,6 @@ def set_custom_field(post, key, value):
             post.custom_fields = []
 
         post.custom_fields.append({'key': key, 'value': value})
-
 
 def publish_wp(site_name, output_file, resources, args):
     """Publish a notebook to a wordpress post, using Gutenberg blocks.
@@ -396,8 +398,6 @@ def html(doc, template):
 
         inline_doc = convert_markdown(context['inline_doc'], extensions)
 
-        idp = []
-
         tag_map = {
             'p': 'wp:paragraph',
             'ul': 'wp:list',
@@ -491,6 +491,7 @@ def run_package(m):
         list(split_groups_tags(m.args.group)) +
         list(split_groups_tags(m.args.tag))
     ))
+
 
     post.terms_names = {
         'post_tag': post_tags,
