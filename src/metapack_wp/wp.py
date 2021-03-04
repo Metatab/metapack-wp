@@ -396,7 +396,7 @@ def html(doc, template):
             'markdown.extensions.admonition'
         ]
 
-        inline_doc = convert_markdown(context['inline_doc'], extensions)
+        inline_doc = convert_markdown(context['inline_doc'], extensions=extensions)
 
         tag_map = {
             'p': 'wp:paragraph',
