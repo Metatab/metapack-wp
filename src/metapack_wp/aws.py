@@ -8,24 +8,22 @@ Manage AWS S3 bucket permissions and users
 import json
 import mimetypes
 import sys
-from os import getcwd, getenv
-from os.path import abspath, basename, dirname, join
+from os.path import abspath, dirname, join
 
 import metatab
-from metatab import (DEFAULT_METATAB_FILE, MetatabDoc, MetatabError, _meta,
-                     open_package, resolve_package_metadata_url)
-from metatab.cli.core import err, metatab_info
-from rowgenerators import Url
 
-from .core import err, prt, warn, write_doc
-from .metasync import update_dist
+from metapack.cli.core import err, prt
 
 
-def metaaws():
+def metaaws(subparsers):
     import argparse
 
-    parser = argparse.ArgumentParser(prog='metakan',
-                                     description='CKAN management of Metatab packages')
+    parser = subparsers.add_parser(
+        'aws',
+        help='Manage AWS S3 bucket',
+    )
+
+    parser.set_defaults(run_command=run_aws)
 
     parser.add_argument('-p', '--profile_name', type=str, nargs='?', help='Name of boto/aws credentials file')
     parser.set_defaults(subcommand=None)
@@ -41,7 +39,7 @@ def metaaws():
     sp.set_defaults(subcommand=list_bucket_users)
     sp.add_argument('bucket', help='Bucket name')
 
-    sp = asp.add_parser('init-bucket', help="Initialize ambry buckets")
+    sp = asp.add_parser('init-bucket', help="Initialize a bucket")
     sp.set_defaults(subcommand=init_bucket)
     sp.add_argument('bucket_name', help='Bucket name')
 
@@ -65,19 +63,15 @@ def metaaws():
     sp.add_argument('user_name', help='User name')
     sp.add_argument('bucket', help='Bucket name')
 
-    args = parser.parse_args()
-
-    if args.subcommand is None:
-        parser.print_help()
-    else:
-        args.subcommand(args)  # Note the calls to sp.set_defaults(subcommand=...)
-
 
 USER_PATH = '/metatab/'
 TOP_LEVEL_DIRS = ( 'public', 'restricted', 'private')
 
 policy_name = 'ambry-s3'  # User policy name
 
+def run_aws(args):
+    if args.subcommand is not None:
+        args.subcommand(args)
 
 def get_client(cli_args, service, *args, **kwargs):
     import boto3
@@ -397,9 +391,6 @@ def delete_user(args):
 
 
 def init_bucket(args):
-    from botocore.exceptions import ClientError
-    import json
-
     s3 = get_resource(args, 's3')
 
     b = s3.Bucket(args.bucket_name)
@@ -422,7 +413,6 @@ def split_bucket_name(bucket, default='public'):
 
 def perm(args):
     from botocore.exceptions import ClientError
-    import json
 
     iam = get_resource(args, 'iam')
 
@@ -478,7 +468,6 @@ def perm(args):
 
 
 def list_users(args):
-    from botocore.exceptions import ClientError
     import tabulate
 
     client = get_client(args, 'iam')
