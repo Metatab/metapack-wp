@@ -7,38 +7,45 @@ CLI program for managing packages
 
 import json
 from functools import lru_cache
-from os.path import basename
 from textwrap import dedent
-from uuid import uuid4
+from xmlrpc.client import Fault
 
-import yaml
-from metapack import Downloader, is_metapack_url
+from slugify import slugify
+from wordpress_xmlrpc import Client, WordPressPost
+from wordpress_xmlrpc.methods.posts import NewPost, EditPost
+
+from metapack import Downloader
 from metapack.cli.core import (MetapackCliMemo, err, warn, get_config, prt)
 from metapack.html import display_context, jsonld
-from metapack.util import ensure_dir
-from metapack_jupyter.wordpress import convert_wordpress
+from metapack_build.build import find_csv_packages, find_fs_package_from_dir
 from rowgenerators import parse_app_url
 
-from metapack_build.build import find_csv_packages
-
 downloader = Downloader.get_instance()
+
+import collections
+
+try:
+    # Seems to be a change in python 3.10
+    collections.Iterable
+except AttributeError:
+    collections.Iterable = collections.abc.Iterable
+
 
 
 def wp(subparsers):
     parser = subparsers.add_parser(
         'wp',
-        help='Publish a Jupyter notebook or data package to Wordpress ',
+        help='Publish a data package to Wordpress ',
         description="""
         Write a notebook or package to Wordpress.
 
-        If the source argument is a data package, (Metatab format Metapack package, CSV or ZIP )package information will be 
+        If the source argument is a data package, (Metatab format Metapack package, CSV or ZIP ) package information will be 
         submitted to the Wordpress blog as a blog post, formatted similarly to the package html documentation file.
 
         If the source is a Metatab file and the ``--references`` option is set, the references References section of the 
         file are URLs for the packages that should be published. The ``--group`` and ``--tag`` options are used
         for publishing each of the references. 
         
-
         If the source argument is a Jupyter notebook, the notebook is written as a blog post. See
         http://insights.civicknowledge.com for examples.
 
@@ -48,7 +55,7 @@ def wp(subparsers):
     parser.set_defaults(run_command=run_wp)
 
     parser.add_argument('-g', '--group', nargs='?', action='append', help="Assign an additional group. Can be used "
-                                                                          "multiple times, one onece with values "
+                                                                          "multiple times, or once with values "
                                                                           "separated by commas")
 
     parser.add_argument('-t', '--tag', nargs='?', action='append', help="Assign an additional tag. Can be used "
@@ -64,8 +71,7 @@ def wp(subparsers):
     parser.add_argument('-p', '--publish', help='Set the post state to published, rather than draft',
                         action='store_true')
 
-    parser.add_argument('-R', '--references', help='The metatab package lists the packages to publish as references',
-                        action='store_true')
+    parser.add_argument('-U', '--upload', help='Upload the data to Wordpress', action='store_true')
 
     parser.add_argument('-r', '--result', action='store_true', default=False,
                         help="If mp -q flag set, still report results")
@@ -82,7 +88,7 @@ def wp(subparsers):
 
     parser.add_argument('-n', '--no-op', help='Do everything but submit the post', action='store_true')
 
-    parser.add_argument('source',nargs='?', help="Path to a notebook file or a Metapack package")
+    parser.add_argument('source', nargs='?', help="Path to a notebook file or a Metapack package")
 
 
 def split_groups_tags(v):
@@ -96,66 +102,33 @@ def split_groups_tags(v):
         else:
             yield g
 
-def run_wp(args):
 
+def run_wp(args):
     if not args.source:
         args.source = '.'
 
     u = parse_app_url(args.source)
 
-    if u.target_format == 'ipynb':
-        run_notebook(args)
-    else:
+    args.metatabfile = args.source
+    m = MetapackCliMemo(args, downloader)
 
-        args.metatabfile = args.source
-        m = MetapackCliMemo(args, downloader)
+    if args.json:
+        context = display_context(m.doc)
+        print(json.dumps(context, indent=4))
 
-        if args.json:
-            context = display_context(m.doc)
-            print(json.dumps(context, indent=4))
+    elif args.dump or not args.site_name:
+        doc = get_doc(m)
+        content = html(doc, m.template)
+        print(content)
+    elif args.get:
+        run_get_post(m)
+    elif args.site_name:
 
-        elif args.dump or not args.site_name:
-            doc, content = get_doc_content(m)
-            print(content)
-        elif args.site_name:
-
-            if args.references:
-
-                m.args.group = m.args.group if m.args.group else []
-                m.args.group += [e.value for e in m.doc.find('Root.Group')]
-
-                m.args.tag = m.args.tag if m.args.tag else []
-                m.args.tag += [e.value for e in m.doc.find('Root.Tag')]
-
-                for r in m.doc.references():
-
-                    u = r.resolved_url
-                    if is_metapack_url(u):
-                        args.metatabfile = str(u)
-                        mc = MetapackCliMemo(m.args, downloader)
-
-                        if args.result:
-                            print(f" ✅ Publishing {str(u)} to {args.site_name}", )
-                        else:
-                            prt(f"Publishing {str(u)} to {args.site_name}", str(u))
-
-                        run_package(mc)
-
-            else:
-                run_package(m)
-                if args.result:
-                    print(f"✅ Published {str(m.doc.name)} to {args.site_name}", )
-                else:
-                    prt(f"Published {str(m.doc.name)} to {args.site_name}", str(u))
-
-def run_notebook(args):
-    p = '/tmp/metapack-wp-notebook/'
-    ensure_dir(p)
-
-    output_file, resources = convert_wordpress(args.source, p)
-
-    r, post = publish_wp(args.site_name, output_file, resources, args)
-    prt("Post url: ", post.link)
+        run_package(m)
+        if args.result:
+            print(f"✅ Published {str(m.doc.name)} to {args.site_name}", )
+        else:
+            prt(f"Published {str(m.doc.name)} to {args.site_name}", str(u))
 
 
 def get_site_config(site_name):
@@ -184,25 +157,6 @@ def get_site_config(site_name):
     return site_config['url'], site_config['user'], site_config['password']
 
 
-def prepare_image(slug, file_name, post_id):
-    from xmlrpc import client as xmlrpc_client
-
-    # prepare metadata
-    data = {
-        'name': 'picture.jpg',
-        'type': 'image/jpeg',  # mimetype
-    }
-
-    # read the binary file and let the XMLRPC library encode it into base64
-    with open(file_name, 'rb') as img:
-        return {
-            'name': '{}-{}'.format(slug, basename(file_name)),
-            'type': 'image/png',  # mimetype
-            'bits': xmlrpc_client.Binary(img.read()),
-            'post_id': post_id
-        }
-
-
 def cust_field_dict(post):
     try:
         return dict((e['key'], e['value']) for e in post.custom_fields)
@@ -220,7 +174,7 @@ def get_posts(wp):
     offset = 0
     increment = 20
     while True:
-        posts = wp.call(GetPosts({'number': increment, 'offset': offset, 'post_type':'post'}))
+        posts = wp.call(GetPosts({'number': increment, 'offset': offset, 'post_type': 'post'}))
         if len(posts) == 0:
             break  # no more posts returned
         for post in posts:
@@ -230,11 +184,13 @@ def get_posts(wp):
 
     return all_posts
 
+
 def find_post(wp, identifier):
     for _post in get_posts(wp):
         if cust_field_dict(_post).get('identifier') == identifier:
             return _post
     return None
+
 
 def set_custom_field(post, key, value):
     if not hasattr(post, 'custom_fields') or not key in [e['key'] for e in post.custom_fields]:
@@ -243,144 +199,6 @@ def set_custom_field(post, key, value):
             post.custom_fields = []
 
         post.custom_fields.append({'key': key, 'value': value})
-
-def publish_wp(site_name, output_file, resources, args):
-    """Publish a notebook to a wordpress post, using Gutenberg blocks.
-
-    Here is what the metadata looks like, in a section of the notebook tagged 'frontmatter'
-
-    show_input: hide
-    github: https://github.com/sandiegodata/notebooks/blob/master/tutorial/American%20Community%20Survey.ipynb
-    identifier: 5c987397-a954-46ca-8743-bdcd7a71579c
-    featured_image: 171
-    authors:
-    - email: eric@civicknowledge.com
-      name: Eric Busboom
-      organization: Civic Knowledge
-      type: wrangler
-    tags:
-    - Tag1
-    - Tag2
-    categories:
-    - Demographics
-    - Tutorial
-
-    'Featured_image' is an attachment id
-
-    """
-
-    from wordpress_xmlrpc import Client, WordPressPost
-    from wordpress_xmlrpc.methods.media import UploadFile, GetMediaLibrary
-    from wordpress_xmlrpc.methods.posts import NewPost, EditPost, GetPost
-    from xmlrpc.client import Fault
-
-    url, user, password = get_site_config(site_name)
-
-    meta = {}
-    for r in resources:
-        if r.endswith('.json'):
-            with open(r) as f:
-                meta = json.load(f)
-
-    fm = meta.get('frontmatter', {})
-
-    if not 'identifier' in fm or not fm['identifier']:
-        err("Can't publish notebook without a unique identifier. Add this to the "
-            "Metatab document or frontmatter metadata:\n   identifier: {}".format(str(uuid4())))
-
-    wp = Client(url, user, password)
-
-    post = find_post(wp, fm['identifier'])
-
-    if post:
-        prt("Updating old post")
-    else:
-        post = WordPressPost()
-        post.id = wp.call(NewPost(post))
-        prt(f"Creating new post; could not find identifier {fm['identifier']} ")
-
-    post.title = fm.get('title', '')
-    post.slug = fm.get('slug')
-
-    with open(output_file) as f:
-        content = f.read()
-
-    post.terms_names = {
-        'post_tag': fm.get('tags', []),
-        'category': fm.get('categories', [])
-    }
-
-    if args.header:
-        print(yaml.dump(fm, default_flow_style=False))
-
-    set_custom_field(post, 'identifier', fm['identifier'])
-
-    post.excerpt = fm.get('excerpt', fm.get('brief', fm.get('description')))
-
-    def strip_image_name(n):
-        """Strip off the version number from the media file"""
-        from os.path import splitext
-        import re
-        return re.sub(r'\-\d+$', '', splitext(n)[0])
-
-    extant_files = list(wp.call(GetMediaLibrary(dict(parent_id=post.id))))
-
-    def find_extant_image(image_name):
-        for img in extant_files:
-            if strip_image_name(basename(img.metadata['file'])) == strip_image_name(image_name):
-                return img
-
-        return None
-
-    for r in resources:
-
-        image_data = prepare_image(fm['identifier'], r, post.id)
-        img_from = "/{}/{}".format(fm['slug'], basename(r))
-
-        extant_image = find_extant_image(image_data['name'])
-
-        if extant_image:
-            prt("Post already has image:", extant_image.id, extant_image.link)
-            img_to = extant_image.link
-
-        elif r.endswith('.png'):  # Foolishly assuming all images are PNGs
-            if args.no_op:
-                response = {
-                    'id': None,
-                    'link': 'http://example.com'
-                }
-            else:
-                response = wp.call(UploadFile(image_data, overwrite=True))
-
-            prt("Uploaded image {} to id={}, {}".format(basename(r), response['id'], response['link']))
-
-            img_to = response['link']
-
-        else:
-            continue
-
-
-
-        content = content.replace(img_from, img_to)
-
-    if fm.get('featured_image') and str(fm.get('featured_image')).strip():
-        post.thumbnail = int(fm['featured_image'])
-    elif hasattr(post, 'thumbnail') and isinstance(post.thumbnail, dict):
-        # The thumbnail expects an attachment id on EditPost, but returns a dict on GetPost
-        post.thumbnail = post.thumbnail['attachment_id']
-
-    post.content = content
-
-    if not args.no_op:
-        try:
-            r = wp.call(EditPost(post.id, post))
-        except Fault as e:
-            if 'attachment' in str(e): # Remove attachment and try again.
-                post.thumbnail = None
-                r = wp.call(EditPost(post.id, post))
-
-
-        return r, wp.call(GetPost(post.id))
 
 
 def html(doc, template):
@@ -420,7 +238,7 @@ def html(doc, template):
 
     context['jsonld'] = json.dumps(jsonld(doc), indent=4)
 
-    #print(json.dumps(context, indent=4))
+    # print(json.dumps(context, indent=4))
 
     env = Environment(
         loader=PackageLoader('metapack_wp', 'support/templates')
@@ -430,7 +248,23 @@ def html(doc, template):
     return env.get_template(template).render(**context)
 
 
-def get_doc_content(m):
+def get_doc(m):
+    """
+    :param m: Locate the package document. If --upload is specified, look for
+
+    :type m:
+    :return:
+    :rtype:
+    """
+    if m.args.upload:
+        doc = find_fs_package_from_dir(m.args.source)
+    else:
+        doc = find_csv_package(m)
+
+    return
+
+
+def find_csv_package(m):
     if not m.doc.find('Root.Distribution'):
 
         doc = find_csv_packages(m, downloader)
@@ -442,35 +276,35 @@ def get_doc_content(m):
     else:
         doc = m.doc
 
-    return doc, html(doc, m.args.template)
+    return doc
 
 
-def run_package(m):
-    """Publish documentation for a package as a post"""
-    from wordpress_xmlrpc import Client, WordPressPost
-    from xmlrpc.client import Fault
-    from wordpress_xmlrpc.methods.posts import NewPost, EditPost
-    from slugify import slugify
+def run_get_post(m):
+    """Get the post if it iexists and print out its data"""
 
-    doc, content = get_doc_content(m)
+    doc = get_doc(m)
 
     url, user, password = get_site_config(m.args.site_name)
     wp = Client(url, user, password)
 
     post = find_post(wp, doc.identifier)
 
-    if m.args.get:
-        if post:
-            post.content = "<content elided>"
-            from pprint import pprint
-            pprint(post.struct)
-            return
-        else:
-            warn(f"Didn't find post for identifier {doc.identifier}")
-            return
+    if post:
+        post.content = "…content elided…"
+        from pprint import pprint
+        pprint(post.struct)
+        return
+    else:
+        warn(f"Didn't find post for identifier {doc.identifier}")
+        return
+
+
+def get_or_new_post(m, wp, doc):
+    """Create a stub post, if a post with the correct identifier does not exist"""
+
+    post = find_post(wp, doc.identifier)
 
     if post:
-        prt("Updating old post")
         action = lambda post: EditPost(post.id, post)
     else:
         prt(f"Creating new post; could not find identifier '{doc.identifier}' ")
@@ -482,6 +316,58 @@ def run_package(m):
     set_custom_field(post, 'name', doc.name)
     set_custom_field(post, 'nvname', doc.nonver_name)
 
+    if not m.args.no_op:
+        r = wp.call(action(post))
+
+    return post
+
+
+def upload_to_wordpress(wp, post, pkg):
+    """Upload CSV resources to Wordpress"""
+    from wordpress_xmlrpc.compat import xmlrpc_client
+    from wordpress_xmlrpc.methods import media
+
+    r = wp.call(media.GetMediaLibrary({'parent_id': post.id, 'mime_type': 'text/csv'}))
+
+    extant = {e.title: e for e in r}
+
+    for r in pkg.resources():
+        url = r.resolved_url
+        if r.qualified_name in extant:
+            print('👌', r.qualified_name, 'Not uploading; already exist. ')
+            r.value = extant[r.qualified_name].link
+
+        else:
+
+            d = {
+                'name': r.qualified_name,
+                'type': 'text/csv',
+                'bits': xmlrpc_client.Binary(url.fspath.read_bytes()),
+                'post_id': post.id
+            }
+
+            rsp = wp.call(media.UploadFile(d))
+            print('✅', r.qualified_name, 'Uploaded to ', rsp['url'])
+            r.value = rsp['url']
+
+def run_package(m):
+    """Publish documentation for a package as a post"""
+
+    if m.args.upload:
+        doc = find_fs_package_from_dir(m.args.source)
+    else:
+        doc = find_csv_package(m)
+
+    url, user, password = get_site_config(m.args.site_name)
+    wp = Client(url, user, password)
+
+    post = get_or_new_post(m, wp, doc)
+
+    if m.args.upload:
+        upload_to_wordpress(wp, post, doc)
+
+    content = html(doc, m.args.template)
+
     post.excerpt = doc['Root'].get_value('Root.Description') or content[:200]
 
     post_tags = list(set(
@@ -491,7 +377,6 @@ def run_package(m):
         list(split_groups_tags(m.args.group)) +
         list(split_groups_tags(m.args.tag))
     ))
-
 
     post.terms_names = {
         'post_tag': post_tags,
@@ -509,7 +394,7 @@ def run_package(m):
         if m.args.no_op:
             r = {}
         else:
-            r = wp.call(action(post))
+            r = wp.call(EditPost(post.id, post))
     except Fault as e:
 
         if 'taxonomies' in e.faultString:
