@@ -6,7 +6,7 @@
 <!-- wp:list -->
 <ul>{%- for term_name, terms in resources.items() -%}
 {%- for resource in terms %}
-<li><strong><a href="{{resource.url}}">{{resource.name}}</a></strong>. {{resource.description}}</li>
+<li><strong><a href="{{resource.url}}" download>{{resource.name}}</a></strong>. {{resource.description}}</li>
 {%- endfor %}
 {%- endfor %}</ul>
 <!-- /wp:list -->

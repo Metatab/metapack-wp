@@ -19,6 +19,7 @@ from metapack.cli.core import (MetapackCliMemo, err, warn, get_config, prt)
 from metapack.html import display_context, jsonld
 from metapack_build.build import find_csv_packages, find_fs_package_from_dir
 from rowgenerators import parse_app_url
+from time import sleep
 
 downloader = Downloader.get_instance()
 
@@ -185,11 +186,6 @@ def get_posts(wp):
     return all_posts
 
 
-def find_post(wp, identifier):
-    for _post in get_posts(wp):
-        if cust_field_dict(_post).get('identifier') == identifier:
-            return _post
-    return None
 
 
 def set_custom_field(post, key, value):
@@ -261,7 +257,7 @@ def get_doc(m):
     else:
         doc = find_csv_package(m)
 
-    return
+    return doc
 
 
 def find_csv_package(m):
@@ -278,14 +274,24 @@ def find_csv_package(m):
 
     return doc
 
+def get_wp(m):
+    url, user, password = get_site_config(m.args.site_name)
+    wp = Client(url, user, password)
+    return wp
+
+def find_post(wp, identifier):
+    for _post in get_posts(wp):
+        if cust_field_dict(_post).get('identifier') == identifier:
+            return _post
+    return None
 
 def run_get_post(m):
     """Get the post if it iexists and print out its data"""
 
     doc = get_doc(m)
+    assert doc is not None
 
-    url, user, password = get_site_config(m.args.site_name)
-    wp = Client(url, user, password)
+    wp = get_wp(m)
 
     post = find_post(wp, doc.identifier)
 
@@ -308,7 +314,6 @@ def get_or_new_post(m, wp, doc):
         action = lambda post: EditPost(post.id, post)
     else:
         prt(f"Creating new post; could not find identifier '{doc.identifier}' ")
-        print(doc.identifier)
         action = lambda post: NewPost(post)
         post = WordPressPost()
 
@@ -317,10 +322,20 @@ def get_or_new_post(m, wp, doc):
     set_custom_field(post, 'nvname', doc.nonver_name)
 
     if not m.args.no_op:
+
         r = wp.call(action(post))
+        wp = get_wp(m)
+        for i in range(4):
+            post = find_post(wp, doc.identifier)
+
+            if post is not None:
+                break
+            print("HERE!", post)
+            sleep(1)
+        else:
+            err("Could not find post after creating it", r,  post)
 
     return post
-
 
 def upload_to_wordpress(wp, post, pkg):
     """Upload CSV resources to Wordpress"""
@@ -346,9 +361,13 @@ def upload_to_wordpress(wp, post, pkg):
                 'post_id': post.id
             }
 
-            rsp = wp.call(media.UploadFile(d))
-            print('✅', r.qualified_name, 'Uploaded to ', rsp['url'])
-            r.value = rsp['url']
+            try:
+                rsp = wp.call(media.UploadFile(d))
+                prt('✅', r.qualified_name, 'Uploaded to ', rsp['url'])
+                r.value = rsp['url']
+            except Exception as e:
+                err(r.qualified_name, 'Upload failed: ', e)
+                raise
 
 
 
@@ -364,6 +383,8 @@ def run_package(m):
     wp = Client(url, user, password)
 
     post = get_or_new_post(m, wp, doc)
+
+    assert post is not None
 
     if m.args.upload:
         upload_to_wordpress(wp, post, doc)
