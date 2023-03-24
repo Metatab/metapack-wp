@@ -354,21 +354,24 @@ def upload_to_wordpress(wp, post, pkg):
 
         else:
 
+            data = url.fspath.read_bytes()
+
             d = {
                 'name': r.qualified_name,
                 'type': 'text/csv',
-                'bits': xmlrpc_client.Binary(url.fspath.read_bytes()),
+                'bits': xmlrpc_client.Binary(data),
                 'post_id': post.id
             }
+
+            prt('Uploading', r.qualified_name)
 
             try:
                 rsp = wp.call(media.UploadFile(d))
                 prt('✅', r.qualified_name, 'Uploaded to ', rsp['url'])
                 r.value = rsp['url']
             except Exception as e:
-                err(r.qualified_name, 'Upload failed: ', e)
+                err(r.qualified_name, 'Upload failed: ', e, f'len={len(data)}')
                 raise
-
 
 
 def run_package(m):
